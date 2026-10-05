@@ -1,6 +1,7 @@
 
 import { Request, Response } from "express";
 import db from "../database";
+import xss from "xss";
 
 
 export const criarComentario = async (
@@ -13,16 +14,21 @@ export const criarComentario = async (
         usuarioId
     } = req.body;
 
+    // Limpa o texto antes de salvar, String() garante que seja sempre texto
+    const textoLimpo = xss(String(texto ?? ""));
+
+    // Valores trocados por $1 e $2
     const query =
         `INSERT INTO comentario (texto, usuario_id)
-         VALUES ('${texto}', '${usuarioId}')`;
+        VALUES ($1, $2)`;
 
     console.log(`Query Executada: ${query}`);
 
 
     try {
 
-        await db.query(query);
+        // Valores de $1 e $2
+        await db.query(query, [textoLimpo, usuarioId]);
 
         res.status(201).json({
             message: "Comentário criado"
@@ -48,7 +54,13 @@ export const listarComentarios = async (
             "SELECT * FROM comentario"
         );
 
-        res.json(result.rows);
+        // Limpa o texto ao listar, para pegar comentários maliciosos que já estavam salvos no banco antes da correção
+        const comentarios = result.rows.map((c) => ({
+            ...c,
+            texto: xss(c.texto ?? ""),
+        }));
+
+        res.json(comentarios);
 
     } catch (err: any) {
 

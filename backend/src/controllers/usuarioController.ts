@@ -2,17 +2,20 @@
 
 import { Request, Response } from "express";
 import db from "../database";
+// Biblioteca que limpa HTML/JS malicioso de textos
+import xss from "xss";
 
 export const login = async (req: Request, res: Response) => {
     const { email, password } = req.body;
 
     const query =
         // Deixei a linha como string
+        // $1 e $2 no lugar de concatenar email e senha
         "SELECT * FROM usuario WHERE email = $1 AND senha = $2";
 
     console.log(`Query Executada: ${query}`);
 
-    // Passei os valores de $1 e $2
+    // Valores de $1 e $2
     const result = await db.query(query, [email, password]);
 
     if (result.rowCount && result.rowCount > 0) {
@@ -32,48 +35,54 @@ export const login = async (req: Request, res: Response) => {
 
 
 export const novoLogin = async (req: Request, res: Response) => {
-    const { email, password, nome } = req.body;
+    // email e nome são limpos com xss
+    // A senha não passa pelo xss, porque poderia ser alterado e quebrar o login
+    const { password } = req.body;
+    const email = xss(String(req.body.email ?? ""));
+    const nome = xss(String(req.body.nome ?? ""));
 
     const queryNomeIpuExiste =
-        // Tirei as variaveis
+        // Deixei a linha como string
+        // $1 no lugar do nome
         "SELECT * FROM iptu WHERE nome = $1";
 
     console.log(`Query Executada: ${queryNomeIpuExiste}`);
 
-    // Defini o valor de $1
+    // Valor de $1
     const iptuResult = await db.query(queryNomeIpuExiste, [nome]);
 
     if (iptuResult.rowCount && iptuResult.rowCount > 0) {
 
         const query =
-            // Parametrizei para inserir novo usuario
+            // $1, $2 e $3 no lugar de concatenar os valores
             `INSERT INTO usuario (email, senha, nome, tipo_usuario_id)
              VALUES ($1, $2, $3, 3)`;
 
         console.log(`Query Executada: ${query}`);
 
-        // Passei os valores de $1, $2 e $3
+        // Valores de $1, $2 e $3
         const result = await db.query(query, [email, password, nome]);
 
         const queryIdUsuario =
-            // Busca o id do usuario recem criado
+            // $1 e $2 no lugar de email e senha
             `SELECT id FROM usuario  
              WHERE email = $1 AND senha = $2`;
 
         console.log(`Query Executada: ${queryIdUsuario}`);
 
-        // Passei os valores de $1 e $2
+        // Valores de $1 e $2
         const resultIdUsuario = await db.query(queryIdUsuario, [email, password]);
 
         const queryUpdateTabelaIptu =
-            // Vincula o usuario criado ao registro de iptu usando os parametros
+            // Vincula o usuario criado ao registro de iptu
+            // Parametrizado com $1 e $2
             `UPDATE iptu
              SET usuario_id = $1
              WHERE nome = $2;`
 
         console.log(`Query Executada: ${queryUpdateTabelaIptu}`);
 
-        // Passei os valores de $1 e $2
+        // Valores de $1 e $2
         const resultUpdate = await db.query(queryUpdateTabelaIptu, [resultIdUsuario.rows[0].id, nome]);
 
         if (
@@ -97,6 +106,7 @@ export const novoLogin = async (req: Request, res: Response) => {
         }
 
     } else {
+        // Nome aqui já foi limpo pelo xss no início da função
         res.status(404).json({
             success: false,
             message: `Nome '${nome}' não encontrado no cadastro de municipes`
@@ -113,7 +123,7 @@ export const atualizarIptu = async (req: Request, res: Response) => {
     } = req.body;
 
     const query =
-        // Parametrizei a atualização do valor do iptu
+        // $1 e $2 no lugar de valor e id
         `UPDATE iptu
          SET valor = $1
          WHERE usuario_id = $2`;
@@ -121,7 +131,7 @@ export const atualizarIptu = async (req: Request, res: Response) => {
     console.log(`Query Executada: ${query}`);
 
     try {
-        // Passei os valores de $1 e $2
+        // Valores de $1 e $2
         await db.query(query, [novoValor, usuarioId]);
 
         res.json({
@@ -145,13 +155,13 @@ export const getIptuPorIdUsuario = async (
         usuarioId,
     } = req.body;
     const query =
-        // Query parametrizada
+        // $1 no lugar do id do usuário
         `SELECT * FROM iptu WHERE usuario_id = $1`;
 
     console.log(`Query Executada: ${query}`);
 
     try {
-        // Passei o valor de $1
+        // Valor de $1
         const result = await db.query(query, [usuarioId]);
 
         console.log(`Retorno: ${JSON.stringify(result.rows)}`);
@@ -201,7 +211,14 @@ export const getQRCodeOrCodBarras = async (
     res: Response
 ) => {
 
-    const tipo = req.query.tipo as string;
+    // Sem "as string", para validar o tipo real do valor
+    const tipo = req.query.tipo;
+
+    // Só aceita os dois valores esperados, qualquer outro é recusado
+    if (tipo !== "codigoDeBarras" && tipo !== "qrcode") {
+        res.status(400).send("Tipo inválido");
+        return;
+    }
 
 
     let codigoHtml = "";
@@ -217,8 +234,9 @@ export const getQRCodeOrCodBarras = async (
             `<img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=QRCodeDemo" />`;
     }
 
+    // Segunda camada, o xss escapa o valor antes de colocarno HTML
     res.send(`
-        <h2>Tipo selecionado: ${tipo}</h2>
+        <h2>Tipo selecionado: ${xss(tipo)}</h2>
         ${codigoHtml}
     `);
 };
