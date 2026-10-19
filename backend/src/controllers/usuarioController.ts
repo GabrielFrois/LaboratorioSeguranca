@@ -4,6 +4,8 @@ import { Request, Response } from "express";
 import db from "../database";
 // Biblioteca que limpa HTML/JS malicioso de textos
 import xss from "xss";
+// Biblioteca que gera o token JWT do login
+import jwt from "jsonwebtoken";
 
 export const login = async (req: Request, res: Response) => {
     const { email, password } = req.body;
@@ -20,9 +22,31 @@ export const login = async (req: Request, res: Response) => {
 
     if (result.rowCount && result.rowCount > 0) {
 
+        const usuario = result.rows[0];
+
+        // Gera o token JWT com os dados do usuário (expira em 1h, igual ao cookie)
+        const token = jwt.sign(
+            {
+                id: usuario.id,
+                tipo: String(usuario.tipo_usuario_id),
+                email: usuario.email,
+                nome: usuario.nome
+            },
+            (global as any).segredoJwt,
+            { expiresIn: "1h" }
+        );
+
+        // CSRF: o token vai num cookie protegido
+        res.cookie('token', token, {
+            httpOnly: true,                                // JavaScript não consegue ler o cookie
+            secure: process.env.NODE_ENV === 'production', // só HTTPS em produção
+            sameSite: 'strict',                            // não é enviado em requisições de outros sites
+            maxAge: 3600000                                
+        });
+
         res.json({
             success: true,
-            user: result.rows[0]
+            user: usuario
         });
 
     } else {
@@ -234,7 +258,7 @@ export const getQRCodeOrCodBarras = async (
             `<img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=QRCodeDemo" />`;
     }
 
-    // Segunda camada, o xss escapa o valor antes de colocarno HTML
+    // Segunda camada, o xss escapa o valor antes de colocar no HTML
     res.send(`
         <h2>Tipo selecionado: ${xss(tipo)}</h2>
         ${codigoHtml}
